@@ -4,9 +4,37 @@ body {
   background: #f5f4f0;
   height: 100vh;
   overflow: hidden;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   color: #2a2a2a;
 }
+
+/* ---- Top nav — editorial grid ---- */
+
+#topnav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 1.25rem 1.5rem;
+}
+
+#topnav a {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: #2a2a2a;
+  transition: opacity 0.25s ease;
+}
+
+#topnav a:nth-child(2) { text-align: center; }
+#topnav a:nth-child(3) { text-align: center; }
+#topnav a:nth-child(4) { text-align: right; }
 
 #gl {
   display: block;
@@ -20,32 +48,43 @@ body {
 
 #intro {
   position: fixed;
-  inset: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-direction: column;
-  padding-bottom: 12vh;
+  justify-content: center;
+  padding: 1.25rem 1.5rem;
   z-index: 10;
   pointer-events: none;
   will-change: opacity;
 }
 
 .scroll-cue {
-  /* centered by flex parent */
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.scroll-line {
-  width: 1px;
-  height: 48px;
-  background: #c0bdb6;
-  transform-origin: top;
-  animation: pulse 2.8s ease-in-out infinite;
+.cue-label {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #999;
 }
 
-@keyframes pulse {
-  0%, 100% { transform: scaleY(0.35); opacity: 0.25; }
-  50%      { transform: scaleY(1);    opacity: 0.7;  }
+.cue-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #999;
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50%      { opacity: 1;   transform: scale(1.2); }
 }
 
 /* ---- Post-assembly hint ---- */
