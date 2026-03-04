@@ -10,7 +10,7 @@ const canvas   = document.getElementById('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setClearColor(0xffffff, 1);
+renderer.setClearColor(0xf5f4f0, 1);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 
@@ -225,7 +225,7 @@ const CUBE_ROT_END   = 1.0;
    Virtual scroll
    ========================================================= */
 
-const SCROLL_RANGE = 2000;
+const SCROLL_RANGE = 2400;
 let scrollTarget  = 0;
 let scrollCurrent = 0;
 
@@ -257,6 +257,7 @@ const easeOut4 = t => 1 - (1 - t) ** 4;
    ========================================================= */
 
 const introEl = document.getElementById('intro');
+const hintEl  = document.getElementById('hint');
 
 /* =========================================================
    Render loop
@@ -269,7 +270,7 @@ function tick() {
   requestAnimationFrame(tick);
 
   /* smooth scroll */
-  scrollCurrent += (scrollTarget - scrollCurrent) * 0.055;
+  scrollCurrent += (scrollTarget - scrollCurrent) * 0.045;
   const gT = Math.max(0, Math.min(1, scrollCurrent / SCROLL_RANGE));
 
   /* intro fade */
@@ -329,6 +330,7 @@ function tick() {
   wasAssembled = assembled;
 
   canvas.style.cursor = assembled ? 'grab' : 'default';
+  if (hintEl) hintEl.classList.toggle('visible', assembled);
   renderer.render(scene, camera);
 }
 
