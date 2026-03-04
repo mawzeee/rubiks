@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
+const _font = new FontFace('PP Neue Corp', 'url(fonts/PPNeueCorp-ExtendedUltrabold.otf)', { weight: '800' });
+_font.load().then(f => { document.fonts.add(f); }).then(() => {
+
 /* =========================================================
    Scene
    ========================================================= */
@@ -76,12 +79,12 @@ function roundedPlaneGeo(w, h, r, segs = 8) {
    Cubie dimensions — like a real Rubik's cube
    ========================================================= */
 
-const CELL         = 0.92;     // cubie body size
-const DEPTH        = 0.15;     // cubie thickness
-const CUBIE_R      = 0.035;    // cubie edge rounding
-const STICKER_SIZE = 0.78;     // sticker is smaller → dark frame visible
-const STICKER_R    = 0.035;    // sticker corner rounding
-const HALF         = 1.5;      // cube center to face
+const CELL         = 0.92;
+const DEPTH        = 0.15;
+const CUBIE_R      = 0.035;
+const STICKER_SIZE = 0.78;
+const STICKER_R    = 0.035;
+const HALF         = 1.5;
 
 /* =========================================================
    Shared geometries & materials
@@ -97,6 +100,108 @@ const cubieBodyMat = new THREE.MeshStandardMaterial({
 const loader  = new THREE.TextureLoader();
 const cubeGrp = new THREE.Group();
 scene.add(cubeGrp);
+
+/* =========================================================
+   Title — "RUBIKS" (PP Frama Black, static full-screen)
+   ========================================================= */
+
+const textGrp = new THREE.Group();
+scene.add(textGrp);
+
+function srand(s) {
+  const x = Math.sin(s * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+const FONT = '"PP Neue Corp"';
+
+function makeLetterPlane(letter, unitHeight) {
+  const res = unitHeight > 3 ? 1024 : 512;
+
+  const tmp = document.createElement('canvas');
+  tmp.width = tmp.height = 10;
+  const tctx = tmp.getContext('2d');
+  tctx.font = `800 ${res}px ${FONT}`;
+  const m = tctx.measureText(letter);
+
+  const ascent  = m.actualBoundingBoxAscent  || res * 0.72;
+  const descent = m.actualBoundingBoxDescent || res * 0.02;
+  const bboxL   = m.actualBoundingBoxLeft    || 0;
+  const bboxR   = m.actualBoundingBoxRight   || m.width;
+
+  const textH  = ascent + descent;
+  const textW  = bboxL + bboxR;
+  const margin = res * 0.02;
+  const cW = Math.ceil(textW + margin * 2);
+  const cH = Math.ceil(textH + margin * 2);
+
+  const c = document.createElement('canvas');
+  c.width  = cW;
+  c.height = cH;
+  const ctx = c.getContext('2d');
+
+  ctx.fillStyle = '#000000';
+  ctx.font = `800 ${res}px ${FONT}`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(letter, margin + bboxL, margin + ascent);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const planeH = unitHeight;
+  const planeW = planeH * (cW / cH);
+  const geo    = new THREE.PlaneGeometry(planeW, planeH);
+
+  return { tex, geo, planeW, planeH };
+}
+
+const titleMeshes = [];
+
+/* --- "RUBIKS" — one row, auto-sized to fill viewport --- */
+{
+  const TITLE = 'RUBIKS'.split('');
+
+  const _mc = document.createElement('canvas');
+  _mc.width = _mc.height = 10;
+  const _mx = _mc.getContext('2d');
+  _mx.font = `800 512px ${FONT}`;
+
+  const aspects = TITLE.map(ch => {
+    const m = _mx.measureText(ch);
+    const asc = m.actualBoundingBoxAscent  || 369;
+    const dsc = m.actualBoundingBoxDescent || 10;
+    const bL  = m.actualBoundingBoxLeft    || 0;
+    const bR  = m.actualBoundingBoxRight   || m.width;
+    const mg  = 512 * 0.02;
+    return (bL + bR + mg * 2) / (asc + dsc + mg * 2);
+  });
+
+  const sumA  = aspects.reduce((s, a) => s + a, 0);
+  const _vFov = camera.fov * Math.PI / 180;
+  const _visH = 2 * CAM_START.z * Math.tan(_vFov / 2);
+  const _visW = _visH * camera.aspect;
+
+  const CHAR_H = Math.min(_visH * 0.95, (_visW * 0.98) / sumA);
+
+  const planes = TITLE.map(ch => makeLetterPlane(ch, CHAR_H));
+  const totalW = planes.reduce((s, p) => s + p.planeW, 0);
+  let cx = -totalW / 2;
+
+  planes.forEach((p) => {
+    cx += p.planeW / 2;
+
+    const mat = new THREE.MeshBasicMaterial({
+      map: p.tex, transparent: true, alphaTest: 0.1,
+      side: THREE.FrontSide, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(p.geo, mat);
+    mesh.position.set(cx, 0, 0);
+    textGrp.add(mesh);
+    titleMeshes.push(mesh);
+
+    cx += p.planeW / 2;
+  });
+}
 
 /* =========================================================
    Core — dark rounded box visible through gaps
@@ -142,18 +247,13 @@ FACES.forEach(face => {
         map: tex, roughness: 0.35, metalness: 0.02,
       });
 
-      // — cubie group (body + sticker) —
       const cubie = new THREE.Group();
-
-      // dark 3D body
       cubie.add(new THREE.Mesh(cubieGeo, cubieBodyMat));
 
-      // image sticker raised on front face
       const sticker = new THREE.Mesh(stickerGeo, stickerMat);
       sticker.position.z = DEPTH / 2 + 0.001;
       cubie.add(sticker);
 
-      // position on cube face
       const pos = normal.clone().multiplyScalar(HALF)
         .add(right.clone().multiplyScalar(col - 1))
         .add(up.clone().multiplyScalar(1 - row));
@@ -179,11 +279,6 @@ FACES.forEach(face => {
    Start positions — scattered off-screen ring
    ========================================================= */
 
-function srand(s) {
-  const x = Math.sin(s * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
-}
-
 cubies.forEach((c, i) => {
   const angle = srand(i * 31 + 17) * Math.PI * 2;
   const dist  = 9 + srand(i * 23 + 5) * 6;
@@ -203,7 +298,7 @@ const sorted = cubies
   .sort((a, b) => b.score - a.score);
 
 const TILE_SPAN     = 0.22;
-const INTRO_PAD     = 0.06;
+const INTRO_PAD     = 0.12;
 const STAGGER_END   = 1.0 - TILE_SPAN;
 const STAGGER_RANGE = STAGGER_END - INTRO_PAD;
 
@@ -251,9 +346,14 @@ window.addEventListener('touchmove', e => {
 const easeOut3 = t => 1 - (1 - t) ** 3;
 const easeIO3  = t => t < .5 ? 4*t*t*t : 1 - (-2*t + 2) ** 3 / 2;
 const easeOut4 = t => 1 - (1 - t) ** 4;
+const easeOutBack = t => {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+};
 
 /* =========================================================
-   Intro DOM
+   Intro DOM (scroll-cue only)
    ========================================================= */
 
 const introEl = document.getElementById('intro');
@@ -263,26 +363,31 @@ const hintEl  = document.getElementById('hint');
    Render loop
    ========================================================= */
 
-const _q = new THREE.Quaternion();
+const _q  = new THREE.Quaternion();
+const _v  = new THREE.Vector3();
 let wasAssembled = false;
 
 function tick() {
   requestAnimationFrame(tick);
 
+  const time = performance.now() / 1000;
+
   /* smooth scroll */
   scrollCurrent += (scrollTarget - scrollCurrent) * 0.045;
   const gT = Math.max(0, Math.min(1, scrollCurrent / SCROLL_RANGE));
 
-  /* intro fade */
+  /* ---- Title — static, hide when cube arrives ---- */
+  textGrp.visible = gT < 0.10;
+
+  /* ---- Scroll-cue fade ---- */
   if (introEl) {
-    const fade = Math.min(1, gT / 0.07);
-    introEl.style.opacity   = 1 - fade;
-    introEl.style.transform = `translateY(${-fade * 50}px) scale(${1 + fade * 0.08})`;
-    if (fade >= 1) introEl.style.display = 'none';
-    else           introEl.style.display = '';
+    const cueFade = Math.min(1, Math.max(0, (gT - 0.08) / 0.04));
+    introEl.style.opacity = String(1 - cueFade);
+    if (cueFade >= 1) introEl.style.display = 'none';
+    else              introEl.style.display = '';
   }
 
-  /* per-cubie animation — no transparency, just scale + fly */
+  /* ---- Per-cubie animation — scale + fly ---- */
   for (let i = 0; i < cubies.length; i++) {
     const c    = cubies[i];
     const rawT = Math.max(0, Math.min(1, (gT - tileStart[i]) / TILE_SPAN));
@@ -295,7 +400,6 @@ function tick() {
     c.mesh.position.lerpVectors(c.startPos, c.cubePos, t);
     c.mesh.quaternion.slerpQuaternions(c.startQuat, c.cubeQuat, t);
 
-    // scale pop — reaches 1 quickly
     c.mesh.scale.setScalar(easeOut3(Math.min(1, rawT / 0.12)));
   }
 
@@ -345,3 +449,5 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+
+}); /* end document.fonts.ready */
