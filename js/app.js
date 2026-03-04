@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /* =========================================================
    Scene
@@ -10,6 +11,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true 
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setClearColor(0xffffff, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 
 const scene  = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
@@ -26,21 +29,28 @@ controls.enablePan     = false;
 controls.enabled       = false;
 
 /* =========================================================
-   Lighting
+   Three-point lighting
    ========================================================= */
 
-scene.add(new THREE.AmbientLight(0xffffff, 1.8));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-dirLight.position.set(5, 8, 4);
-scene.add(dirLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+
+const keyLight = new THREE.DirectionalLight(0xfff8f0, 1.1);
+keyLight.position.set(5, 8, 4);
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0xe0e8ff, 0.45);
+fillLight.position.set(-4, 2, -3);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
+rimLight.position.set(0, -4, -5);
+scene.add(rimLight);
 
 /* =========================================================
-   Rounded-rect plane geometry (shared)
+   Rounded-rect sticker geometry (shared, 2D face)
    ========================================================= */
 
-const CELL = 0.82;
-
-function roundedPlaneGeo(w, h, r, segs = 6) {
+function roundedPlaneGeo(w, h, r, segs = 8) {
   const s = new THREE.Shape();
   const x = -w / 2, y = -h / 2;
   s.moveTo(x + r, y);
@@ -53,44 +63,58 @@ function roundedPlaneGeo(w, h, r, segs = 6) {
   s.lineTo(x, y + r);
   s.quadraticCurveTo(x, y, x + r, y);
 
-  const geo  = new THREE.ShapeGeometry(s, segs);
-  const pos  = geo.attributes.position;
-  const uv   = geo.attributes.uv;
+  const geo = new THREE.ShapeGeometry(s, segs);
+  const pos = geo.attributes.position;
+  const uv  = geo.attributes.uv;
   for (let i = 0; i < pos.count; i++) {
     uv.setXY(i, (pos.getX(i) + w / 2) / w, (pos.getY(i) + h / 2) / h);
   }
   return geo;
 }
 
-const planeGeo = roundedPlaneGeo(CELL, CELL, 0.045);
-
 /* =========================================================
-   Cube data
+   Cubie dimensions — like a real Rubik's cube
    ========================================================= */
 
-const HALF   = 1.5;
-const OFFSET = 0.001;
-const loader = new THREE.TextureLoader();
+const CELL         = 0.92;     // cubie body size
+const DEPTH        = 0.15;     // cubie thickness
+const CUBIE_R      = 0.035;    // cubie edge rounding
+const STICKER_SIZE = 0.78;     // sticker is smaller → dark frame visible
+const STICKER_R    = 0.035;    // sticker corner rounding
+const HALF         = 1.5;      // cube center to face
+
+/* =========================================================
+   Shared geometries & materials
+   ========================================================= */
+
+const cubieGeo   = new RoundedBoxGeometry(CELL, CELL, DEPTH, 3, CUBIE_R);
+const stickerGeo = roundedPlaneGeo(STICKER_SIZE, STICKER_SIZE, STICKER_R);
+
+const cubieBodyMat = new THREE.MeshStandardMaterial({
+  color: 0x1a1a1a, roughness: 0.55, metalness: 0.05,
+});
+
+const loader  = new THREE.TextureLoader();
 const cubeGrp = new THREE.Group();
 scene.add(cubeGrp);
 
-// Frosted glass core
-const coreMat = new THREE.MeshPhysicalMaterial({
-  color:              new THREE.Color(42 / 255, 42 / 255, 42 / 255),
-  transmission:       1.0,
-  roughness:          0.85,
-  thickness:          1.5,
-  ior:                1.5,
-  attenuationColor:   new THREE.Color(42 / 255, 42 / 255, 42 / 255),
-  attenuationDistance: 0.3,
-  transparent:        true,
-  opacity:            0,
+/* =========================================================
+   Core — dark rounded box visible through gaps
+   ========================================================= */
+
+const coreMat = new THREE.MeshStandardMaterial({
+  color: 0x111111, roughness: 0.85, metalness: 0.05,
 });
-const coreMesh = new THREE.Mesh(new THREE.BoxGeometry(2.99, 2.99, 2.99), coreMat);
-coreMesh.renderOrder = -1;        // draw before image planes
-coreMat.depthWrite   = false;     // never occlude tiles behind it
-coreMesh.visible     = false;     // hidden until needed
+const coreMesh = new THREE.Mesh(
+  new RoundedBoxGeometry(2.82, 2.82, 2.82, 2, 0.08),
+  coreMat,
+);
+coreMesh.visible = false;
 cubeGrp.add(coreMesh);
+
+/* =========================================================
+   Build 54 cubies (body + sticker each)
+   ========================================================= */
 
 const FACES = [
   { dir: [ 0, 0, 1], right: [ 1,0, 0], up: [0,1, 0], label: 'f' },
@@ -101,7 +125,7 @@ const FACES = [
   { dir: [ 0,-1, 0], right: [ 1,0, 0], up: [0,0, 1], label: 'd' },
 ];
 
-const planes = [];
+const cubies = [];
 
 FACES.forEach(face => {
   const normal = new THREE.Vector3(...face.dir);
@@ -114,28 +138,38 @@ FACES.forEach(face => {
       const tex  = loader.load(`https://picsum.photos/seed/${seed}/300/300`);
       tex.colorSpace = THREE.SRGBColorSpace;
 
-      const mat = new THREE.MeshStandardMaterial({
-        map: tex, roughness: 0.55, metalness: 0, side: THREE.DoubleSide,
-        transparent: true, opacity: 0,
+      const stickerMat = new THREE.MeshStandardMaterial({
+        map: tex, roughness: 0.35, metalness: 0.02,
       });
 
-      const mesh = new THREE.Mesh(planeGeo, mat);
-      const pos  = normal.clone().multiplyScalar(HALF + OFFSET)
+      // — cubie group (body + sticker) —
+      const cubie = new THREE.Group();
+
+      // dark 3D body
+      cubie.add(new THREE.Mesh(cubieGeo, cubieBodyMat));
+
+      // image sticker raised on front face
+      const sticker = new THREE.Mesh(stickerGeo, stickerMat);
+      sticker.position.z = DEPTH / 2 + 0.001;
+      cubie.add(sticker);
+
+      // position on cube face
+      const pos = normal.clone().multiplyScalar(HALF)
         .add(right.clone().multiplyScalar(col - 1))
         .add(up.clone().multiplyScalar(1 - row));
 
-      mesh.position.copy(pos);
-      mesh.lookAt(pos.clone().add(normal));
-      mesh.visible = false;
+      cubie.position.copy(pos);
+      cubie.lookAt(pos.clone().add(normal));
+      cubie.visible = false;
 
-      cubeGrp.add(mesh);
+      cubeGrp.add(cubie);
 
-      planes.push({
-        mesh, mat,
+      cubies.push({
+        mesh:      cubie,
         cubePos:   pos.clone(),
-        cubeQuat:  mesh.quaternion.clone(),
+        cubeQuat:  cubie.quaternion.clone(),
         startPos:  new THREE.Vector3(),
-        startQuat: new THREE.Quaternion(),   // identity → face camera
+        startQuat: new THREE.Quaternion(),
       });
     }
   }
@@ -150,10 +184,10 @@ function srand(s) {
   return x - Math.floor(x);
 }
 
-planes.forEach((p, i) => {
+cubies.forEach((c, i) => {
   const angle = srand(i * 31 + 17) * Math.PI * 2;
   const dist  = 9 + srand(i * 23 + 5) * 6;
-  p.startPos.set(
+  c.startPos.set(
     Math.cos(angle) * dist,
     Math.sin(angle) * dist,
     (srand(i * 7 + 11) - 0.5) * 4,
@@ -161,21 +195,21 @@ planes.forEach((p, i) => {
 });
 
 /* =========================================================
-   Stagger order — spatial cascade (front-top → back-bottom)
+   Stagger — spatial cascade (front-top → back-bottom)
    ========================================================= */
 
-const sorted = planes
-  .map((p, i) => ({ i, score: p.cubePos.z * 1.5 + p.cubePos.y + p.cubePos.x * 0.5 }))
+const sorted = cubies
+  .map((c, i) => ({ i, score: c.cubePos.z * 1.5 + c.cubePos.y + c.cubePos.x * 0.5 }))
   .sort((a, b) => b.score - a.score);
 
-const TILE_SPAN    = 0.22;          // each tile animates over 22 % of scroll
-const INTRO_PAD    = 0.06;          // tiles don't start until intro fades
-const STAGGER_END  = 1.0 - TILE_SPAN;
+const TILE_SPAN     = 0.22;
+const INTRO_PAD     = 0.06;
+const STAGGER_END   = 1.0 - TILE_SPAN;
 const STAGGER_RANGE = STAGGER_END - INTRO_PAD;
 
-const tileStart = new Float32Array(planes.length);
+const tileStart = new Float32Array(cubies.length);
 sorted.forEach((item, order) => {
-  tileStart[item.i] = INTRO_PAD + (order / (planes.length - 1)) * STAGGER_RANGE;
+  tileStart[item.i] = INTRO_PAD + (order / (cubies.length - 1)) * STAGGER_RANGE;
 });
 
 /* =========================================================
@@ -211,15 +245,15 @@ window.addEventListener('touchmove', e => {
 });
 
 /* =========================================================
-   Easing helpers
+   Easing
    ========================================================= */
 
-const easeOut3  = t => 1 - (1 - t) ** 3;
-const easeIO3   = t => t < .5 ? 4*t*t*t : 1 - (-2*t + 2) ** 3 / 2;
-const easeOut4  = t => 1 - (1 - t) ** 4;
+const easeOut3 = t => 1 - (1 - t) ** 3;
+const easeIO3  = t => t < .5 ? 4*t*t*t : 1 - (-2*t + 2) ** 3 / 2;
+const easeOut4 = t => 1 - (1 - t) ** 4;
 
 /* =========================================================
-   Intro DOM ref
+   Intro DOM
    ========================================================= */
 
 const introEl = document.getElementById('intro');
@@ -234,11 +268,11 @@ let wasAssembled = false;
 function tick() {
   requestAnimationFrame(tick);
 
-  /* --- smooth scroll --- */
+  /* smooth scroll */
   scrollCurrent += (scrollTarget - scrollCurrent) * 0.055;
   const gT = Math.max(0, Math.min(1, scrollCurrent / SCROLL_RANGE));
 
-  /* --- intro overlay --- */
+  /* intro fade */
   if (introEl) {
     const fade = Math.min(1, gT / 0.07);
     introEl.style.opacity   = 1 - fade;
@@ -247,50 +281,36 @@ function tick() {
     else           introEl.style.display = '';
   }
 
-  /* --- per-tile animation --- */
-  for (let i = 0; i < planes.length; i++) {
-    const p  = planes[i];
+  /* per-cubie animation — no transparency, just scale + fly */
+  for (let i = 0; i < cubies.length; i++) {
+    const c    = cubies[i];
     const rawT = Math.max(0, Math.min(1, (gT - tileStart[i]) / TILE_SPAN));
 
-    if (rawT <= 0) { p.mesh.visible = false; continue; }
+    if (rawT <= 0) { c.mesh.visible = false; continue; }
 
-    p.mesh.visible = true;
+    c.mesh.visible = true;
     const t = easeOut4(rawT);
 
-    // position
-    p.mesh.position.lerpVectors(p.startPos, p.cubePos, t);
+    c.mesh.position.lerpVectors(c.startPos, c.cubePos, t);
+    c.mesh.quaternion.slerpQuaternions(c.startQuat, c.cubeQuat, t);
 
-    // rotation
-    p.mesh.quaternion.slerpQuaternions(p.startQuat, p.cubeQuat, t);
-
-    // opacity — quick fade-in over first 25 %, then switch to opaque for correct depth
-    const opacity = Math.min(1, rawT / 0.25);
-    if (opacity >= 1 && p.mat.transparent) {
-      p.mat.transparent = false;
-      p.mat.opacity = 1;
-    } else if (opacity < 1) {
-      p.mat.transparent = true;
-      p.mat.opacity = opacity;
-    }
-
-    // scale — pop from 0.4 → 1
-    const sc = 0.4 + 0.6 * Math.min(1, rawT / 0.18);
-    p.mesh.scale.setScalar(sc);
+    // scale pop — reaches 1 quickly
+    c.mesh.scale.setScalar(easeOut3(Math.min(1, rawT / 0.12)));
   }
 
-  /* --- cube group rotation (delayed) --- */
+  /* cube group rotation */
   const rotT = easeIO3(
     Math.max(0, Math.min(1, (gT - CUBE_ROT_START) / (CUBE_ROT_END - CUBE_ROT_START)))
   );
   _q.slerpQuaternions(cubeQ0, cubeQ1, rotT);
   cubeGrp.quaternion.copy(_q);
 
-  /* --- glass core (second half) --- */
-  const coreOpacity = 0.4 * easeIO3(Math.max(0, Math.min(1, (gT - 0.45) / 0.55)));
-  coreMesh.visible = coreOpacity > 0.001;
-  coreMat.opacity  = coreOpacity;
+  /* dark core scales in */
+  const coreT = easeOut3(Math.max(0, Math.min(1, (gT - 0.10) / 0.30)));
+  coreMesh.visible = coreT > 0.01;
+  if (coreMesh.visible) coreMesh.scale.setScalar(coreT);
 
-  /* --- camera + orbit --- */
+  /* camera + orbit */
   const assembled = gT > 0.995;
 
   if (assembled) {
